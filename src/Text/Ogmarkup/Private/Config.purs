@@ -14,10 +14,10 @@ import Prelude     (id)
 import Data.Monoid (append)
 import Data.Maybe  (Maybe(..), fromMaybe)
 
-import Text.Ogmarkup.Private.Typography (Typography, Space(..), englishTypo)
+import Text.Ogmarkup.Private.Typography (Typography, Space(..))
 
 -- | A 'Template' is just synonym for a template of one argument.
-type Template = String -> String
+type Template a = a -> a
 
 -- | An instance of the 'GenConf' typeclass can be given as a parameter to
 -- a 'Text.Ogmarkup.Private.Generator.Generator'.  In order to prevent GHC
@@ -37,65 +37,44 @@ type Template = String -> String
 --     * @MultiParamTypeClasses@
 --
 -- Otherwise, GHC will not accept your instance statement.
-type GenConf = { typography         :: Typography
-               , documentTemplate   :: Template
-               , errorTemplate      :: Template
-               , storyTemplate      :: Template
-               , asideTemplate      :: Maybe String -> Template
-               , paragraphTemplate  :: Template
-               , tellerTemplate     :: Template
-               , dialogueTemplate   :: String -> Template
-               , thoughtTemplate    :: String -> Template
-               , replyTemplate      :: Template
-               , betweenDialogue    :: String
-               , emphTemplate       :: Template
-               , strongEmphTemplate :: Template
-               , authorNormalize    :: Maybe String -> String
-               , printSpace         :: Space -> String
-               }
+data GenConf a = GC { typography         :: Typography a
+                    , documentTemplate   :: Template a
+                    , errorTemplate      :: Template a
+                    , storyTemplate      :: Template a
+                    , asideTemplate      :: Maybe String -> Template a
+                    , paragraphTemplate  :: Template a
+                    , tellerTemplate     :: Template a
+                    , dialogueTemplate   :: String -> Template a
+                    , thoughtTemplate    :: String -> Template a
+                    , replyTemplate      :: Template a
+                    , betweenDialogue    :: a
+                    , emphTemplate       :: Template a
+                    , strongEmphTemplate :: Template a
+                    , authorNormalize    :: Maybe String -> String
+                    , printSpace         :: Space -> a
+                    }
 
-rawGenConfig :: GenConf
-rawGenConfig = { typography:         englishTypo
-               , documentTemplate:   id
-               , errorTemplate:      id
-               , storyTemplate:      id
-               , asideTemplate:      \_ -> id
-               , paragraphTemplate:  id
-               , tellerTemplate:     id
-               , dialogueTemplate:   \_ -> id
-               , thoughtTemplate:    \_ -> id
-               , replyTemplate:      id
-               , betweenDialogue:    " "
-               , emphTemplate:       id
-               , strongEmphTemplate: id
-               , authorNormalize:    \s -> case s of Just a -> a
-                                                     _      -> ""
-               , printSpace:         \s -> case s of Normal -> " "
-                                                     Nbsp   -> " "
-                                                     _      -> ""
-               }
-
-htmlGenConfig :: Typography
-              -> GenConf
-htmlGenConfig t = { typography:         t
-                  , documentTemplate:   htmlDoc
-                  , errorTemplate:      htmlError
-                  , storyTemplate:      htmlStory
-                  , asideTemplate:      htmlAside
-                  , paragraphTemplate:  htmlPar
-                  , tellerTemplate:     id
-                  , dialogueTemplate:   htmlDial
-                  , thoughtTemplate:    htmlThou
-                  , replyTemplate:      htmlReply
-                  , betweenDialogue:    "</p><p>"
-                  , emphTemplate:       htmlEmph
-                  , strongEmphTemplate: htmlStrongEmph
-                  , authorNormalize:    \s -> case s of Just a -> a
-                                                        _      -> ""
-                  , printSpace:         \s -> case s of Normal -> " "
-                                                        Nbsp   -> "&nbsp;"
-                                                        _      -> ""
-                  }
+htmlGenConfig :: Typography String
+              -> GenConf String
+htmlGenConfig t = GC { typography:         t
+                     , documentTemplate:   htmlDoc
+                     , errorTemplate:      htmlError
+                     , storyTemplate:      htmlStory
+                     , asideTemplate:      htmlAside
+                     , paragraphTemplate:  htmlPar
+                     , tellerTemplate:     id
+                     , dialogueTemplate:   htmlDial
+                     , thoughtTemplate:    htmlThou
+                     , replyTemplate:      htmlReply
+                     , betweenDialogue:    "</p><p>"
+                     , emphTemplate:       htmlEmph
+                     , strongEmphTemplate: htmlStrongEmph
+                     , authorNormalize:    \s -> case s of Just a -> a
+                                                           _      -> ""
+                     , printSpace:         \s -> case s of Normal -> " "
+                                                           Nbsp   -> "&nbsp;"
+                                                           _      -> ""
+                     }
   where
     htmlDoc doc = template "<article>" doc "</article>"
     htmlError err = template "<span class=\"ogma-error\">" err "</span>"

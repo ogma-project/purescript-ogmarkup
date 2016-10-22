@@ -1,0 +1,21 @@
+{
+  "name": "purescript-ogmarkup-dev",
+  "version": "3.1.0",
+  "description": "Dev environment for purescript-ogmarkup lib",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ogma-project/purescript-ogmarkup.git"
+  },
+  "author": "Thomas Letan",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ogma-project/purescript-ogmarkup/issues"
+  },
+  "devDependencies": {
+    "pulp": "^9.0.1",
+    "purescript": "^0.9.3",
+    "bower": "^1.7.9"
+  },
+  "homepage": "https://github.com/ogma-project/purescript-ogmarkup#readme",
+  "private": "true"
+}

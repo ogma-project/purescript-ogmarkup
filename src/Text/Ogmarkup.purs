@@ -24,8 +24,10 @@ module Text.Ogmarkup
     , ogmarkup
     ) where
 
+import Prelude (pure)
 import Data.Either (Either(..))
 import Data.Monoid (class Monoid, mempty)
+import Control.Monad.Aff (Aff)
 
 import Text.Ogmarkup.Private.Config (GenConf, Template, htmlGenConfig)
 import Text.Ogmarkup.Private.Ast (Mark(..))
@@ -36,11 +38,11 @@ import Text.Ogmarkup.Private.Typography
 -- | From a String, parse and generate an output according to a generation configuration.
 --   The inner definitions of the parser and the generator imply that the output
 --   type has to be an instance of the 'IsString' and 'Monoid' classes.
-ogmarkup :: forall a
+ogmarkup :: forall eff a
           . Monoid a
          => String         -- ^ The input string
          -> GenConf a   -- ^ The generator configuration
-         -> a
+         -> Aff eff a
 ogmarkup input conf = case Parser.parse Parser.document input of
                         Right ast -> runGenerator (document ast) conf
-                        Left _    -> mempty -- should not happen
+                        Left _    -> pure mempty -- should not happen

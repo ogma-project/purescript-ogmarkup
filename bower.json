@@ -12,13 +12,7 @@
     "output"
   ],
   "dependencies": {
-    "purescript-console": "^1.0.0",
-    "purescript-lists": "^1.0.1",
-    "purescript-generics": "^1.0.1",
-    "purescript-transformers": "^1.0.0",
-    "purescript-parsing": "^1.0.0"
-  },
-  "devDependencies": {
-    "purescript-psci-support": "^1.0.0"
+    "purescript-parsing": "^1.0.0",
+    "purescript-aff": "^1.1.0"
   }
 }

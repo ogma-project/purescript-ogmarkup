@@ -14,11 +14,15 @@ module Text.Ogmarkup.Private.Generator where
 import Prelude                          (($), bind, Unit, pure, unit, max, (<$>), (&&), (<<<))
 
 import Control.Monad                    (when)
+import Control.Monad.Aff                (Aff, later)
+import Control.Monad.Aff.Class
+import Control.Monad.Trans              (lift)
 import Data.Monoid                      (class Monoid, append, mempty)
 import Data.Maybe                       (Maybe(..))
-import Control.Monad.State              (StateT, execStateT, get, put)
-import Control.Monad.Reader             (Reader, runReader, ask)
+import Control.Monad.State              (StateT, runStateT, execStateT, get, put)
+import Control.Monad.Reader             (ReaderT, runReaderT, ask)
 import Data.List                        (List(..))
+import Data.Tuple                       (Tuple(..))
 
 import Text.Ogmarkup.Private.Ast        as Ast
 import Text.Ogmarkup.Private.Config     (GenConf(..), Template)
@@ -40,28 +44,37 @@ initState = GS { string: mempty
                , prev:   Nothing
                }
 
-type Generator a x = StateT (GenState a) (Reader (GenConf a)) x
+type Generator eff a x = StateT (GenState a) (ReaderT (GenConf a) (Aff eff)) x
 
 -- | Run a 'Generator' monad and get the generated output. The output
 --   type has to implement the class 'Monoid' because the 'Generator' monad
 --   uses the 'mempty' constant as the initial state of the output and then
 --   uses 'mappend' to expand the result as it processes the generation.
-runGenerator :: forall a x
+runGenerator :: forall eff a x
               . Monoid a
-             => Generator a x    -- ^ The 'Generator' to run
+             => Generator eff a x    -- ^ The 'Generator' to run
              -> GenConf a        -- ^ The configuration to use during the generation
-             -> a                -- ^ The output
-runGenerator gen conf = (case runReader (execStateT gen initState) conf of GS st -> st).string
+             -> Aff eff a        -- ^ The output
+runGenerator gen conf = do GS st <- runReaderT (execStateT gen initState) conf
+                           pure st.string
+
+later' :: forall eff a x. Generator eff a x -> Generator eff a x
+later' gen = do st   :: GenState a <- get
+                conf :: GenConf a <- ask
+
+                Tuple res st' <- liftAff <<< later $ runReaderT (runStateT gen st) conf
+                put st'
+                pure res
 
 -- * Low-level 'Generator's
 
 -- | Apply a template to the result of a given 'Generator' before appending it
 --   to the previously generated output.
-apply :: forall a u
+apply :: forall eff a u
        . Monoid a
       => Template a        -- ^ The 'Template' to apply
-      -> Generator a u       -- ^ The 'Generator' to run
-      -> Generator a Unit
+      -> Generator eff a u       -- ^ The 'Generator' to run
+      -> Generator eff a Unit
 apply temp gen = do
   GS st :: GenState a <- get
   put $ GS $ st { string = mempty :: a }
@@ -74,17 +87,17 @@ apply temp gen = do
 
 -- | Forget about the past and consider the next 'Ast.Atom' as the
 --   first to be processed.
-reset :: forall a
-       . Generator a Unit
+reset :: forall eff a
+       . Generator eff a Unit
 reset = do
-  GS st <- get :: Generator a (GenState a)
+  GS st <- get :: Generator eff a (GenState a)
   put $ GS $ st { prev = Nothing }
 
 -- | Append a new sub-output to the generated output.
-raw :: forall a
+raw :: forall eff a
      . Monoid a
     => a           -- ^ A sub-output to append
-    -> Generator a Unit
+    -> Generator eff a Unit
 raw str' = do
   GS st <- get
   let st' = GS $ st { string = st.string `append` str' }
@@ -95,13 +108,13 @@ raw str' = do
 -- | Process an 'Ast.Atom' and deal with the space to use to separate it from
 --   the paramter of the previous call (that is the last processed
 --   'Ast.Atom').
-atom :: forall a
+atom :: forall eff a
       . Monoid a
      => Ast.Atom
-     -> Generator a Unit
+     -> Generator eff a Unit
 atom text = do
-  GS st <- get   :: Generator a (GenState a)
-  GC conf <- ask :: Generator a (GenConf a)
+  GS st <- get   :: Generator eff a (GenState a)
+  GC conf <- ask :: Generator eff a (GenConf a)
 
   case st.prev of
     Just prev ->
@@ -112,28 +125,28 @@ atom text = do
                              { prev = Just text }
 
 -- | Call 'atom' if the parameter is not 'Nothing'. Otherwise, do nothing.
-maybeAtom :: forall a
+maybeAtom :: forall eff a
            . Monoid a
           => Maybe Ast.Atom
-          -> Generator a Unit
+          -> Generator eff a Unit
 maybeAtom (Just text) = atom text
 maybeAtom Nothing = pure unit
 
 -- | Process a sequence of 'Ast.Atom'.
-atoms :: forall a
+atoms :: forall eff a
        . Monoid a
       => List Ast.Atom
-      -> Generator a Unit
+      -> Generator eff a Unit
 atoms (Cons f rst) = do
   atom f
   atoms rst
 atoms Nil = pure unit
 
 -- | Process a 'Ast.Format'.
-format :: forall a
+format :: forall eff a
         . Monoid a
        => Ast.Format
-       -> Generator a Unit
+       -> Generator eff a Unit
 
 format (Ast.Raw as) = atoms as
 
@@ -155,22 +168,22 @@ format (Ast.Quote fs) = do
   atom $ Ast.Punctuation Ast.CloseQuote
 
 -- | Process a sequence of 'Ast.Format'.
-formats :: forall a
+formats :: forall eff a
          . Monoid a
         => List Ast.Format
-        -> Generator a Unit
-formats (Cons f rst) = do
+        -> Generator eff a Unit
+formats (Cons f rst) = later' $ do
   format f
   formats rst
 formats Nil = pure unit
 
 -- | Process a 'Ast.Reply'.
-reply :: forall a
+reply :: forall eff a
        . Monoid a
       => Maybe Ast.Atom
       -> Maybe Ast.Atom
       -> Ast.Reply
-      -> Generator a Unit
+      -> Generator eff a Unit
 reply begin end (Ast.Simple d) = do
   GC conf :: GenConf a <- ask
   let temp = conf.replyTemplate
@@ -194,12 +207,12 @@ reply begin end (Ast.WithSay d ws d') = do
                maybeAtom end
 
 -- | Process a 'Ast.Component'.
-component :: forall a
+component :: forall eff a
            . Monoid a
           => Boolean        -- ^ Was the last component a piece of dialog?
           -> Boolean        -- ^ Will the next component be a piece of dialog?
           -> Ast.Component  -- ^ The current component to process
-          -> Generator a Unit
+          -> Generator eff a Unit
 component p n (Ast.Dialogue d a) = do
   GC conf :: GenConf a <- ask
   let typo = conf.typography
@@ -226,10 +239,10 @@ component p n (Ast.IllFormed ws) = do
   apply temp (raw $ typo.wrapWord ws)
 
 -- | Process a 'Ast.Paragraph' and deal with sequence of 'Ast.Reply'.
-paragraph :: forall a
+paragraph :: forall eff a
            . Monoid a
           => Ast.Paragraph
-          -> Generator a Unit
+          -> Generator eff a Unit
 paragraph l@(Cons h r) = do
   GC conf :: GenConf a <- ask
   let temp = conf.paragraphTemplate
@@ -248,7 +261,7 @@ paragraph l@(Cons h r) = do
            -> Boolean
            -> Boolean
            -> List Ast.Component
-           -> Generator a Unit
+           -> Generator eff a Unit
     recGen between p n (Cons c rst) = do
       when (p && isDialogue c) $ do raw between
                                     reset
@@ -259,20 +272,20 @@ paragraph l@(Cons h r) = do
 paragraph Nil = pure unit
 
 -- | Process a sequence of 'Ast.Paragraph'.
-paragraphs :: forall a
+paragraphs :: forall eff a
             . Monoid a
            => List Ast.Paragraph
-           -> Generator a Unit
+           -> Generator eff a Unit
 paragraphs (Cons h r) = do paragraph h
                            reset
                            paragraphs r
 paragraphs Nil = pure unit
 
 -- | Process a 'Ast.Section'.
-section :: forall a
+section :: forall eff a
          . Monoid a
         => Ast.Section
-        -> Generator a Unit
+        -> Generator eff a Unit
 section (Ast.Story ps) = do GC conf :: GenConf a <- ask
                             let temp = conf.storyTemplate
 
@@ -289,19 +302,19 @@ section (Ast.Failing f) = do
     apply (temp2 <<< temp) (raw $ typo.wrapWord f)
 
 -- | Process a sequence of 'Ast.Section'.
-sections :: forall a
+sections :: forall eff a
           . Monoid a
          => List Ast.Section
-         -> Generator a Unit
+         -> Generator eff a Unit
 sections (Cons s r) = do section s
                          sections r
 sections Nil = pure unit
 
 -- | Process a 'Ast.Document', that is a complete Ogmarkup document.
-document :: forall a
+document :: forall eff a
           . Monoid a
          => Ast.Document
-         -> Generator a Unit
+         -> Generator eff a Unit
 document d = do GC conf :: GenConf a <- ask
                 let temp = conf.documentTemplate
 

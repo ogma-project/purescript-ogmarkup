@@ -24,7 +24,7 @@ module Text.Ogmarkup
     , ogmarkup
     ) where
 
-import Prelude (pure)
+import Prelude (pure, bind)
 import Data.Either (Either(..))
 import Data.Monoid (class Monoid, mempty)
 import Control.Monad.Aff (Aff)
@@ -43,6 +43,7 @@ ogmarkup :: forall eff a
          => String         -- ^ The input string
          -> GenConf a   -- ^ The generator configuration
          -> Aff eff a
-ogmarkup input conf = case Parser.parse Parser.document input of
-                        Right ast -> runGenerator (document ast) conf
-                        Left _    -> pure mempty -- should not happen
+ogmarkup input conf = do
+  pres <- Parser.parse Parser.document input
+  case pres of Right ast -> runGenerator (document ast) conf
+               Left _    -> pure mempty -- should not happen

@@ -13,21 +13,21 @@ module.
 
 module Text.Ogmarkup.Private.Parser where
 
-import Prelude             (Unit, unit, bind, ($), pure, (<*), (*>), (<$>), (-),
-                            (>), (<=), (>=), (&&), (||), (==))
-import Data.Either         (Either)
+import Prelude
+import Data.Tuple          (Tuple(..))
+import Data.Either         (Either(..))
 import Control.Alt         ((<|>))
 import Control.Monad.Aff   (Aff, later)
+import Control.Monad.Aff.Class (liftAff)
+import Control.Monad.Except (ExceptT(..), runExceptT, throwError)
 import Control.Monad       (class Monad)
-import Data.Monoid         (append)
 import Data.Maybe          (Maybe)
 import Data.List           (many, some) as L
 import Data.Array          (many, some, fromFoldable) as A
 import Data.Identity       (Identity(..))
 import Data.List           (List(..), reverse)
 import Data.String         (fromCharArray, toCharArray)
-import Text.Parsing.Parser.Pos (initialPos)
-import Text.Parsing.Parser (ParserT(..), fail, ParseError, runParserT, PState(..))
+import Text.Parsing.Parser (ParserT(..), fail, ParseError, runParserT)
 import Text.Parsing.Parser.Combinators (optional, optionMaybe, notFollowedBy, manyTill, many1Till, try, lookAhead)
 import Text.Parsing.Parser.String (eof, string, anyChar, char, skipSpaces, oneOf, satisfy)
 import Control.Monad.State (StateT(..), get, put, lift, evalStateT, runStateT)
@@ -53,15 +53,29 @@ liftParser :: forall m a
             . Monad m
            => OgmarkupParserPure a
            -> OgmarkupParserT m a
-liftParser (ParserT parser) =
-  ParserT $ \ps ->
-    StateT $ \st -> case runStateT (parser ps) st of Identity res -> pure res
+liftParser (ParserT parser) = do
+  ps <- get
+  st <- sget
+  case runStateT (runStateT (runExceptT parser) ps) st of
+    Identity (Tuple (Tuple res ps') st') -> do
+      sput st'
+      put ps'
+      case res of Right res -> pure res
+                  Left err -> throwError err
+{--  ParserT <<< ExceptT <<< StateT $ \ps ->--}
+    {--StateT $ \st -> case runParserT (parser ps) st of Right (Identity res) -> Right (pure res)--}
+                                                     {--Left (Identity err) -> Left (pure err)--}
 
 later' :: forall eff a
         . OgmarkupParserAff eff a -> OgmarkupParserAff eff a
-later' (ParserT parser) =
-  ParserT \ps ->
-    StateT \st -> later $ runStateT (parser ps) st
+later' (ParserT parser) = do
+  ps <- get
+  st <- sget
+  (Tuple (Tuple res ps') st') <- lift <<< liftAff <<< later $ runStateT (runStateT (runExceptT parser) ps) st
+  sput st'
+  put ps'
+  case res of Right res -> pure res
+              Left err -> throwError err
 
 sget :: forall m
       . Monad m
@@ -152,7 +166,7 @@ parse :: forall m a
       => OgmarkupParserT m a
       -> String
       -> m (Either ParseError a)
-parse ogma content = evalStateT (runParserT (PState { input: content, position: initialPos }) ogma) initParserState
+parse ogma content = evalStateT (runParserT content ogma) initParserState
 
 -- | Try its best to parse an ogmarkup document. When it encounters an
 --   error, it pures an Ast and the remaining input.

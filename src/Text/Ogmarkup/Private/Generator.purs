@@ -16,7 +16,7 @@ import Prelude                          (($), bind, Unit, pure, unit, max, (<$>)
 import Control.Monad                    (when)
 import Control.Monad.Aff                (Aff, later)
 import Control.Monad.Aff.Class
-import Control.Monad.Trans              (lift)
+import Control.Monad.Trans.Class        (lift)
 import Data.Monoid                      (class Monoid, append, mempty)
 import Data.Maybe                       (Maybe(..))
 import Control.Monad.State              (StateT, runStateT, execStateT, get, put)
